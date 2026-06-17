@@ -1,0 +1,7 @@
+# qmake is usable as a Cargo workspace so out-of-tree QEMU peripherals can be
+# written in Rust. The `extern/` submodule (which carries QEMU's own Rust
+# workspace) is excluded so the two workspaces don't collide.
+[workspace]
+resolver = "2"
+members = ["rust/template", "examples/rust-devices"]
+exclude = ["extern"]

@@ -1,0 +1,24 @@
+# Build trees
+/build/
+build/
+cmake-build-*/
+
+# QEMU out-of-source build dir (never commit QEMU build artifacts)
+/extern/qemu/build/
+extern/**/build/
+
+# Rust
+/target/
+**/target/
+Cargo.lock
+
+# Injected module fragments live in the QEMU submodule working tree; ignore
+# them there so they never show up as submodule dirty state we accidentally commit.
+extern/qemu/hw/qmake-modules/
+extern/qemu/rust/hw/qmake-*/
+
+# Editor / OS
+.cache/
+compile_commands.json
+.DS_Store
+*.swp
