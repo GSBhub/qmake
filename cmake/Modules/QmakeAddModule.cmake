@@ -20,7 +20,7 @@ include_guard(GLOBAL)
 include(QmakeInjectMeson)
 
 function(qmake_add_qemu_module)
-  cmake_parse_arguments(ARG "" "NAME;LANG;LINKAGE;CRATE;SCOPE" "SOURCES;TARGETS;FEATURES;RUSTDEPS;HEADERS" ${ARGN})
+  cmake_parse_arguments(ARG "" "NAME;LANG;LINKAGE;CRATE;SCOPE" "SOURCES;TARGETS;FEATURES;RUSTDEPS;HEADERS;SELECTS" ${ARGN})
 
   if(NOT ARG_NAME)
     message(FATAL_ERROR "qmake_add_qemu_module: NAME is required")
@@ -83,6 +83,7 @@ function(qmake_add_qemu_module)
     SOURCES ${ARG_SOURCES}
     HEADERS ${ARG_HEADERS}
     ARCHS   ${ARG_TARGETS}
+    SELECTS ${ARG_SELECTS}
     SCOPE   "${ARG_SCOPE}")
 
   if(NOT TARGET "${ARG_NAME}")
