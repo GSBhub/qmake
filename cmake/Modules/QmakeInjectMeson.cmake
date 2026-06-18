@@ -56,7 +56,7 @@ function(_qmake_ensure_injected file key line)
 endfunction()
 
 function(qmake_inject_module)
-  cmake_parse_arguments(ARG "" "NAME;SRCDIR;SCOPE" "SOURCES;ARCHS;HEADERS" ${ARGN})
+  cmake_parse_arguments(ARG "" "NAME;SRCDIR;SCOPE" "SOURCES;ARCHS;HEADERS;SELECTS" ${ARGN})
   if(NOT ARG_NAME OR NOT ARG_SRCDIR OR NOT ARG_SOURCES)
     message(FATAL_ERROR "qmake_inject_module: NAME, SRCDIR and SOURCES are required")
   endif()
@@ -151,6 +151,11 @@ function(qmake_inject_module)
     else()
       string(APPEND _kconfig "    default y\n")
     endif()
+    # Pull in QEMU in-tree devices this module needs (Kconfig 'select'), so they
+    # are compiled in whenever the module is, regardless of which boards build.
+    foreach(sel IN LISTS ARG_SELECTS)
+      string(APPEND _kconfig "    select ${sel}\n")
+    endforeach()
     file(WRITE "${_moddir}/Kconfig" ${_kconfig})
 
     _qmake_ensure_injected("${_hw}/Kconfig" "${ARG_NAME}"
