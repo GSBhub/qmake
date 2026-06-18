@@ -1,13 +1,14 @@
 # qmake — out-of-tree QEMU module build system
 
 `qmake` is a CMake harness for writing QEMU peripherals/devices **out of tree** (in
-C, and eventually Rust) and integrating them with a chosen QEMU *without forking
-it*. You point it at a QEMU source tree, declare your modules, and it builds a QEMU
-with your devices statically linked in — with correct per-target (e.g. ARM-only)
-gating handled by QEMU's own Kconfig.
+C or Rust) and integrating them with a chosen QEMU *without forking it*. You point it
+at a QEMU source tree, declare your modules, and it builds a QEMU with your devices
+statically linked in — with correct per-target (e.g. ARM-only) gating handled by
+QEMU's own Kconfig.
 
 It is meant to be consumed as a CMake project you `add_subdirectory()` into an
-external project, and (later) as a Cargo workspace for Rust peripherals.
+external project (see the sibling [`avatar-cm`](../avatar-cm) for a full consumer),
+and as a Cargo workspace for Rust peripherals.
 
 ## Status (v1)
 
@@ -17,8 +18,10 @@ external project, and (later) as a Cargo workspace for Rust peripherals.
 | `qmake::osdep / qapi / log / qom / target-<arch>` feature modules (meson introspection) | ✅ |
 | Static link a C device into QEMU (meson + Kconfig injection) | ✅ |
 | Per-target / ARM-only gating | ✅ |
+| Per-target (`specific_ss`) modules touching CPU internals (`SCOPE TARGET`) | ✅ |
+| Pull in in-tree QEMU devices a module needs (`SELECTS`) | ✅ |
+| Rust devices linked into QEMU (reuse QEMU's in-tree Rust crates) | ✅ |
 | LD_PRELOAD / `--enable-modules` load paths | 🚧 API present, not built |
-| Rust devices (reuse QEMU's in-tree Rust crates) | 🚧 scaffold only |
 | `libqemu-afl-bridge` / avatar-qemu targets | 🚧 supported via `QMAKE_QEMU_DIR`, not yet validated |
 
 ## Requirements
@@ -76,12 +79,26 @@ include(QmakeAddModule)
 
 qmake_add_qemu_module(
   NAME     my_dev
-  LANG     C              # C (Rust staged for later)
+  LANG     C              # C or RUST
   SOURCES  my_dev.c
+  HEADERS  my_dev.h compat.h   # symlinked beside sources so #include "..." resolves
   TARGETS  arm            # arch gating; omit for all targets
+  SCOPE    SYSTEM         # SYSTEM (system_ss, default) or TARGET (specific_ss,
+                          #   per-target — needed to touch target/<arch>/cpu.h)
+  SELECTS  ARM_TIMER      # Kconfig select: pull these in-tree QEMU devices into the build
   LINKAGE  STATIC         # STATIC built now; PRELOAD/MODULE staged
   FEATURES qom log)       # extra qmake:: feature modules (non-static paths)
 ```
+
+- **`SCOPE SYSTEM`** (default) builds into `system_ss` gated on a `CONFIG_QMAKE_<NAME>`
+  Kconfig symbol (`default y [if <ARCH>]`). **`SCOPE TARGET`** builds into `specific_ss`
+  gated on `TARGET_<arch>` so the sources compile per-target with `-DCOMPILING_PER_TARGET`
+  and access to `target/<arch>/cpu.h` (machines, CPU-internals code).
+- **`HEADERS`** are symlinked next to the (symlinked) sources in the QEMU tree so
+  `#include "foo.h"` resolves; a generated `qmake_qemu_version.h` is always provided
+  (with `QMAKE_QEMU_AT_LEAST(maj,min)`) for version-guarded compat shims.
+- **`SELECTS`** adds Kconfig `select` lines so the named in-tree QEMU devices are
+  compiled in whenever the module is (regardless of which boards the build includes).
 
 For `LINKAGE STATIC`, qmake registers the sources into QEMU's build graph under
 `hw/qmake-modules/<name>/` (generated `meson.build` + `Kconfig`) and patches
@@ -146,6 +163,40 @@ MESON_BUILD_ROOT="$PWD/build/qemu-build" cargo build -p qmake-rust-devices
 
 (Requires `cargo install bindgen-cli` and `libclang`, e.g. `dnf install clang-devel`.)
 
+## Testing
+
+qmake's own tests are its bundled examples: building them exercises C (PCI), C
+(target-scope), and Rust (SysBus) static injection, and the resulting QEMU is
+inspected to confirm the devices linked in and registered.
+
+```sh
+# Build QEMU with all bundled example devices linked in:
+cmake -S . -B build -DQMAKE_BUILD_EXAMPLES=ON
+cmake --build build
+Q=build/qemu-build/qemu-system-aarch64
+
+# C PCI devices are user-creatable -> appear in -device help and instantiate:
+$Q -device help | grep -E 'qmake-hello|new_edu'
+printf 'quit\n' | $Q -M virt -cpu cortex-a57 -device qmake-hello -S -monitor stdio
+#   -> "qmake-hello: realized (out-of-tree PCI device built by qmake)"
+
+# Rust SysBus devices register as QOM types (not user-creatable, like in-tree pl011):
+printf '{"execute":"qmp_capabilities"}\n{"execute":"qom-list-types"}\n{"execute":"quit"}\n' \
+  | $Q -M virt -cpu cortex-a57 -qmp stdio -S | grep -o 'qmake-[a-z-]*-rs'
+
+# ARM-only gating: CONFIG_QMAKE_HELLO_DEV is set for aarch64, absent for x86_64:
+grep QMAKE_HELLO_DEV build/qemu-build/aarch64-softmmu-config-devices.mak
+
+# Standalone Rust crate build (needs bindgen + libclang; see Rust section):
+MESON_BUILD_ROOT="$PWD/build/qemu-build" cargo build -p qmake-rust-devices
+```
+
+Injection is idempotent — re-running `cmake` does not duplicate the `# qmake-inject:`
+markers in `extern/qemu/hw/meson.build` / `hw/Kconfig`.
+
+For a larger, real-world consumer with its own end-to-end test suite, see the sibling
+[`avatar-cm`](../avatar-cm) project (a configurable machine built entirely via qmake).
+
 ## Cleaning the QEMU tree
 
 Injection edits tracked QEMU files. To revert:
@@ -162,6 +213,8 @@ cmake/Modules/   QmakeQemuBuild, QmakeIntrospect, QmakeFeatureModules,
                  QmakeInjectMeson, QmakeAddModule
 cmake/scripts/   qmake_introspect.py  (meson introspection -> cmake vars)
 extern/qemu/     QEMU submodule (configurable via QMAKE_QEMU_DIR)
-examples/        arm-hello-dev: ARM-only PCI device, statically linked
+examples/        arm-hello-dev (C PCI), new-edu (QEMU's edu, renamed),
+                 rust-devices (idiomatic Rust SysBus devices)
 rust/template/   scaffold for a Rust peripheral
+Cargo.toml       workspace (rust/template, examples/rust-devices)
 ```
