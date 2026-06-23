@@ -1,0 +1,106 @@
+name: CI
+
+# Exercises the qmake pipeline end to end: build a QEMU with the bundled example
+# modules statically linked in (build), confirm they register/enumerate (load),
+# instantiate a device and check its behaviour (function), and build the Rust
+# example both linked-in and standalone.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout (+ QEMU submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build meson pkg-config flex bison python3 git ccache \
+            libglib2.0-dev libpixman-1-dev zlib1g-dev clang libclang-dev
+
+      - name: Install Rust toolchain (>= QEMU MSRV) + bindgen
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install bindgen-cli
+        run: |
+          cargo install bindgen-cli --locked || cargo install bindgen-cli
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      # --- BUILD: QEMU with all example modules (C PCI, C target-scope, Rust) ---
+      - name: Build (examples on; Rust auto-enabled by the rust-devices module)
+        run: |
+          cmake -S . -B build -G Ninja -DQMAKE_BUILD_EXAMPLES=ON
+          cmake --build build
+          echo "Q=$PWD/build/qemu-build/qemu-system-aarch64" >> "$GITHUB_ENV"
+
+      # --- LOAD: devices linked in and registered ---
+      - name: Load - C PCI devices in -device help
+        run: |
+          "$Q" -device help | grep -q 'qmake-hello'
+          "$Q" -device help | grep -q '"new_edu"'
+      - name: Load - Rust SysBus devices registered as QOM types
+        run: |
+          printf '{"execute":"qmp_capabilities"}\n{"execute":"qom-list-types"}\n{"execute":"quit"}\n' \
+            | "$Q" -M virt -cpu cortex-a57 -qmp stdio -S | grep -q 'qmake-hello-rs'
+
+      # --- FUNCTION: instantiate a device + check behaviour, and ARM-only gating ---
+      - name: Function - C PCI device realizes on virt
+        run: |
+          printf 'quit\n' \
+            | "$Q" -M virt -cpu cortex-a57 -device qmake-hello -S -monitor stdio 2>&1 \
+            | grep -q 'qmake-hello: realized'
+      - name: Function - ARM-only gating (CONFIG set for aarch64)
+        run: grep -q 'CONFIG_QMAKE_HELLO_DEV=y' build/qemu-build/aarch64-softmmu-config-devices.mak
+
+      # --- Rust standalone crate build (uses meson-generated bindings) ---
+      - name: Rust - standalone cargo build of the example crate
+        run: MESON_BUILD_ROOT="$PWD/build/qemu-build" cargo build -p qmake-rust-devices
+
+      # Hand the built emulator to the qtest stage so it need not rebuild QEMU.
+      - name: Upload built QEMU (for the qtest stage)
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-system-aarch64
+          path: build/qemu-build/qemu-system-aarch64
+          retention-days: 1
+
+  # --- TEST: drive real guest-physical MMIO against the out-of-tree devices ---
+  # Separate stage: boots the built QEMU under -accel qtest and exercises each
+  # device's realize() + MMIO read/write handlers (see tests/qtest/README.md).
+  qtest:
+    name: qtest (functional MMIO)
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout (+ QEMU submodule for the shipped qtest client)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install QEMU runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-0 libpixman-1-0 zlib1g
+
+      - name: Download built QEMU
+        uses: actions/download-artifact@v4
+        with:
+          name: qemu-system-aarch64
+          path: build/qemu-build
+
+      # upload-artifact does not preserve the executable bit.
+      - name: Restore executable bit
+        run: chmod +x build/qemu-build/qemu-system-aarch64
+
+      - name: qtest - out-of-tree devices reach realize and handle MMIO
+        run: python3 tests/qtest/qmake_qtest.py build/qemu-build/qemu-system-aarch64
