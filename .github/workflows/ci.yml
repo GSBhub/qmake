@@ -63,3 +63,44 @@ jobs:
       # --- Rust standalone crate build (uses meson-generated bindings) ---
       - name: Rust - standalone cargo build of the example crate
         run: MESON_BUILD_ROOT="$PWD/build/qemu-build" cargo build -p qmake-rust-devices
+
+      # Hand the built emulator to the qtest stage so it need not rebuild QEMU.
+      - name: Upload built QEMU (for the qtest stage)
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-system-aarch64
+          path: build/qemu-build/qemu-system-aarch64
+          retention-days: 1
+
+  # --- TEST: drive real guest-physical MMIO against the out-of-tree devices ---
+  # Separate stage: boots the built QEMU under -accel qtest and exercises each
+  # device's realize() + MMIO read/write handlers (see tests/qtest/README.md).
+  qtest:
+    name: qtest (functional MMIO)
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout (+ QEMU submodule for the shipped qtest client)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install QEMU runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-0 libpixman-1-0 zlib1g
+
+      - name: Download built QEMU
+        uses: actions/download-artifact@v4
+        with:
+          name: qemu-system-aarch64
+          path: build/qemu-build
+
+      # upload-artifact does not preserve the executable bit.
+      - name: Restore executable bit
+        run: chmod +x build/qemu-build/qemu-system-aarch64
+
+      - name: qtest - out-of-tree devices reach realize and handle MMIO
+        run: python3 tests/qtest/qmake_qtest.py build/qemu-build/qemu-system-aarch64

@@ -191,6 +191,24 @@ grep QMAKE_HELLO_DEV build/qemu-build/aarch64-softmmu-config-devices.mak
 MESON_BUILD_ROOT="$PWD/build/qemu-build" cargo build -p qmake-rust-devices
 ```
 
+Beyond confirming the devices are registered, a qtest harness boots QEMU under the
+`qtest` accelerator and drives real guest-physical MMIO against the out-of-tree
+devices — proving they reach `realize()` *and* service their MMIO read/write
+handlers (it programs a PCI BAR over the virt board's ECAM window, then exercises
+`qmake-hello`'s register round-trip and `new_edu`'s magic-ID / bitwise-inverse
+registers). It reuses QEMU's own shipped qtest client, so nothing extra is built:
+
+```sh
+python3 tests/qtest/qmake_qtest.py "$Q"
+#   -> PASS test_qmake_hello_mmio_roundtrip / _realized_qmp / test_new_edu_register_semantics
+```
+
+(The Rust SysBus devices aren't mapped to a fixed MMIO address by the virt board, so
+they stay covered by the `qom-list-types` registration check above.)
+
+To add a qtest for your own out-of-tree device, see
+[`tests/qtest/README.md`](tests/qtest/README.md).
+
 Injection is idempotent — re-running `cmake` does not duplicate the `# qmake-inject:`
 markers in `extern/qemu/hw/meson.build` / `hw/Kconfig`.
 
