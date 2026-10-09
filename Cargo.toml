@@ -3,5 +3,5 @@
 # workspace) is excluded so the two workspaces don't collide.
 [workspace]
 resolver = "2"
-members = ["rust/template", "examples/rust-devices"]
+members = ["rust/template", "examples/rust-devices", "examples/cargo-staticlib"]
 exclude = ["extern"]

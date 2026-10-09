@@ -77,6 +77,7 @@ set(QMAKE_QEMU_TARGET_LIST "${_qmake_target_list}" CACHE INTERNAL "")
 # State accumulated by qmake_add_qemu_module before the QEMU project is defined.
 set_property(GLOBAL PROPERTY QMAKE_QEMU_NEEDS_RUST FALSE)
 set_property(GLOBAL PROPERTY QMAKE_MODULE_TARGETS "")
+set_property(GLOBAL PROPERTY QMAKE_QEMU_EXTRA_TARGETS "")
 
 # Called by the Rust module path to request --enable-rust on the QEMU build.
 function(qmake_require_rust)
@@ -111,11 +112,23 @@ function(_qmake_finalize_qemu)
   endif()
   separate_arguments(_user UNIX_COMMAND "${QMAKE_QEMU_CONFIGURE_ARGS}")
 
+  # Out-of-tree targets (qmake_add_qemu_target) join the configured target list.
+  get_property(_extra_targets GLOBAL PROPERTY QMAKE_QEMU_EXTRA_TARGETS)
+  set(_target_list "${QMAKE_QEMU_TARGET_LIST}")
+  foreach(t IN LISTS _extra_targets)
+    string(FIND ",${_target_list}," ",${t}," _found)
+    if(_found EQUAL -1 AND _target_list)
+      set(_target_list "${_target_list},${t}")
+    elseif(_found EQUAL -1)
+      set(_target_list "${t}")
+    endif()
+  endforeach()
+
   ExternalProject_Add(qemu
     SOURCE_DIR        "${QMAKE_QEMU_DIR}"
     BINARY_DIR        "${QMAKE_QEMU_BUILD_DIR}"
     CONFIGURE_COMMAND "${QMAKE_QEMU_DIR}/configure"
-                      "--target-list=${QMAKE_QEMU_TARGET_LIST}"
+                      "--target-list=${_target_list}"
                       ${_extra}
                       ${_user}
     # Re-run ninja every build: modules injected after first configure change
@@ -138,7 +151,7 @@ function(_qmake_finalize_qemu)
   list(JOIN _extra " " _extra_str)
   message(STATUS "qmake: QEMU source   = ${QMAKE_QEMU_DIR}")
   message(STATUS "qmake: QEMU build    = ${QMAKE_QEMU_BUILD_DIR}")
-  message(STATUS "qmake: QEMU targets  = ${QMAKE_QEMU_TARGET_LIST}")
+  message(STATUS "qmake: QEMU targets  = ${_target_list}")
   message(STATUS "qmake: QEMU configure extra = [${_extra_str}] (rust=${_needs_rust})")
 endfunction()
 

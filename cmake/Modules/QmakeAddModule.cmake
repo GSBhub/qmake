@@ -20,12 +20,13 @@ include_guard(GLOBAL)
 include(QmakeInjectMeson)
 
 function(qmake_add_qemu_module)
-  cmake_parse_arguments(ARG "" "NAME;LANG;LINKAGE;CRATE;SCOPE" "SOURCES;TARGETS;FEATURES;RUSTDEPS;HEADERS;SELECTS" ${ARGN})
+  cmake_parse_arguments(ARG "" "NAME;LANG;LINKAGE;CRATE;SCOPE;MANIFEST;PROFILE"
+                        "SOURCES;TARGETS;FEATURES;RUSTDEPS;HEADERS;SELECTS;LINK_ARGS" ${ARGN})
 
   if(NOT ARG_NAME)
     message(FATAL_ERROR "qmake_add_qemu_module: NAME is required")
   endif()
-  if(NOT ARG_SOURCES)
+  if(NOT ARG_SOURCES AND NOT ARG_LANG STREQUAL "CARGO")
     message(FATAL_ERROR "qmake_add_qemu_module(${ARG_NAME}): SOURCES is required")
   endif()
   if(NOT ARG_LANG)
@@ -40,8 +41,34 @@ function(qmake_add_qemu_module)
     set(ARG_SCOPE SYSTEM)
   endif()
 
-  if(NOT ARG_LANG STREQUAL "C" AND NOT ARG_LANG STREQUAL "RUST")
-    message(FATAL_ERROR "qmake_add_qemu_module(${ARG_NAME}): LANG must be C or RUST")
+  if(NOT ARG_LANG MATCHES "^(C|RUST|CARGO)$")
+    message(FATAL_ERROR "qmake_add_qemu_module(${ARG_NAME}): LANG must be C, RUST or CARGO")
+  endif()
+
+  # Cargo path: build a staticlib crate with real cargo (any dependencies) inside
+  # QEMU's ninja graph and link it, plus optional C glue SOURCES, into QEMU.
+  if(ARG_LANG STREQUAL "CARGO")
+    if(NOT ARG_MANIFEST OR NOT ARG_CRATE)
+      message(FATAL_ERROR
+        "qmake_add_qemu_module(${ARG_NAME}): LANG CARGO requires MANIFEST and CRATE")
+    endif()
+    qmake_inject_cargo_module(
+      NAME      "${ARG_NAME}"
+      SRCDIR    "${CMAKE_CURRENT_SOURCE_DIR}"
+      MANIFEST  "${ARG_MANIFEST}"
+      CRATE     "${ARG_CRATE}"
+      SOURCES   ${ARG_SOURCES}
+      HEADERS   ${ARG_HEADERS}
+      ARCHS     ${ARG_TARGETS}
+      SCOPE     "${ARG_SCOPE}"
+      PROFILE   "${ARG_PROFILE}"
+      LINK_ARGS ${ARG_LINK_ARGS})
+    if(NOT TARGET "${ARG_NAME}")
+      add_custom_target("${ARG_NAME}" ALL
+        COMMENT "qmake Cargo module '${ARG_NAME}' is statically linked into QEMU")
+      qmake_register_module_target("${ARG_NAME}")
+    endif()
+    return()
   endif()
 
   # Rust path: reuse QEMU's in-tree rust crates, link the crate into QEMU via the

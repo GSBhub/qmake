@@ -21,6 +21,9 @@ and as a Cargo workspace for Rust peripherals.
 | Per-target (`specific_ss`) modules touching CPU internals (`SCOPE TARGET`) | ✅ |
 | Pull in in-tree QEMU devices a module needs (`SELECTS`) | ✅ |
 | Rust devices linked into QEMU (reuse QEMU's in-tree Rust crates) | ✅ |
+| New guest **targets** out of tree (`qmake_add_qemu_target`, softmmu) | ✅ |
+| Cargo staticlibs (any crates.io deps) + C glue linked into QEMU (`LANG CARGO`) | ✅ |
+| Out-of-tree targets in `linux-user` mode | 🚧 staged |
 | LD_PRELOAD / `--enable-modules` load paths | 🚧 API present, not built |
 | `libqemu-afl-bridge` / avatar-qemu targets | 🚧 supported via `QMAKE_QEMU_DIR`, not yet validated |
 
@@ -105,6 +108,79 @@ For `LINKAGE STATIC`, qmake registers the sources into QEMU's build graph under
 `hw/meson.build` / `hw/Kconfig` idempotently behind `# qmake-inject:` markers.
 QEMU's meson then compiles and links the device, and Kconfig handles per-target
 gating (`config QMAKE_<NAME>` with `default y if <ARCH>`).
+
+## Adding a new target (CPU architecture)
+
+`qmake_add_qemu_target` registers a whole new guest architecture, so QEMU builds
+`qemu-system-<name>` for a CPU that lives entirely in your repo:
+
+```cmake
+include(QmakeInjectTarget)
+
+qmake_add_qemu_target(
+  NAME      qmdummy        # -> qemu-system-qmdummy
+  SRCDIR    cpu            # cpu.c/cpu.h/cpu-param.h/translate.c/meson.build...
+  LONG_BITS 32             # TARGET_LONG_BITS
+  # BIG_ENDIAN, XML_FILES <gdb-xml...>, DEVICES <CONFIG_X=y...>, ARCH_BIT <n>
+)
+```
+
+`SRCDIR` must provide a `meson.build` that adds `target_arch += {'<name>': ...}` and
+`target_system_arch += {'<name>': ...}`. A `Kconfig` is generated if missing. The
+target is appended to QEMU's `--target-list` automatically. The touchpoints in the
+QEMU tree are:
+
+| Path | Kind |
+|---|---|
+| `target/<name>/*` | new (per-file symlinks to `SRCDIR`) |
+| `configs/targets/<name>-softmmu.mak`, `configs/devices/<name>-softmmu/default.mak` | new (generated) |
+| `target/meson.build`, `target/Kconfig` | marker-appended |
+| `include/system/arch_init.h` (`QEMU_ARCH_<NAME>`) | marker-appended (`/* qmake-inject: */`) |
+| `qapi/machine.json` (`SysEmuTarget` enum member) | marker-inserted |
+
+Revert with `git -C $QMAKE_QEMU_DIR checkout target qapi include` and
+`git -C $QMAKE_QEMU_DIR clean -fd target configs`.
+
+`examples/dummy-target` is a minimal target whose translator turns every
+instruction into a halt helper:
+
+```sh
+build/qemu-build/qemu-system-qmdummy -M none -cpu qmdummy -m 1M -nographic
+#   -> "qmdummy: halt at pc=0x00000000", then a clean exit
+```
+
+## Cargo staticlibs (`LANG CARGO`)
+
+`LANG RUST` builds through QEMU's meson Rust support and can only use QEMU's
+in-tree crates. `LANG CARGO` runs real `cargo`, so the crate can depend on
+anything, and links the resulting `staticlib` plus optional C glue into QEMU:
+
+```cmake
+qmake_add_qemu_module(
+  NAME     cargo_hello
+  LANG     CARGO
+  MANIFEST Cargo.toml            # crate-type = ["staticlib"]
+  CRATE    qmake_cargo_hello     # lib name (underscores)
+  SOURCES  hello_glue.c          # C glue compiled by QEMU's meson with QEMU's flags
+  # SCOPE TARGET + TARGETS <arch> to link only into specific targets
+  # PROFILE release|dev, LINK_ARGS <native libs> (default: Rust std's libs)
+)
+```
+
+cargo runs as a meson `custom_target` inside QEMU's own ninja graph, with cargo's
+dep-info as its depfile (`cmake/scripts/qmake_cargo_build.py`). So it is ordered
+before the emulator link and re-runs (relinking QEMU) only when a Rust source the
+crate depends on changes. The crate's `build.rs` sees `QEMU_SRC_ROOT` and
+`QEMU_BUILD_ROOT`.
+
+```sh
+QMAKE_CARGO_HELLO=1 build/qemu-build/qemu-system-<arch> -M none -S -display none
+#   -> "qmake-cargo-hello: hello from cargo (answer=42)"
+```
+
+Note: a Rust staticlib bundles Rust's std. Linking two Cargo staticlibs (or one
+plus QEMU's own `--enable-rust` code) into the same binary can collide on std
+symbols; combine them into one staticlib crate instead.
 
 ## Feature modules
 
