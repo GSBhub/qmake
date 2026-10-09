@@ -38,21 +38,28 @@ def main() -> int:
     profile_dir = "debug" if args.profile == "dev" else args.profile
     built = os.path.join(args.target_dir, profile_dir, f"lib{args.crate}.a")
     dep = os.path.join(args.target_dir, profile_dir, f"lib{args.crate}.d")
+    # (cargo names the dep-info after the lib, whichever crate-types it builds.)
     if not os.path.exists(built):
         print(f"qmake_cargo_build: {built} not produced; is crate-type = [\"staticlib\"]?",
               file=sys.stderr)
         return 1
     shutil.copy2(built, args.out)
 
-    # cargo dep-info: "<abs>/lib<crate>.a: src1 src2 ..." (spaces escaped as "\ ")
+    # cargo dep-info: "<abs>/lib<crate>.<ext>: src1 src2 ..." (spaces escaped as
+    # "\ "). With several crate-types (e.g. ["staticlib", "rlib"]) cargo writes
+    # the rule for only one artifact, so accept any of the crate's outputs.
     deps = ""
+    artifacts = tuple(f"lib{args.crate}.{ext}" for ext in ("a", "rlib", "so", "dylib"))
     if os.path.exists(dep):
         with open(dep) as f:
             for line in f:
                 head, sep, rest = line.partition(": ")
-                if sep and head.endswith(f"lib{args.crate}.a"):
+                if sep and head.endswith(artifacts):
                     deps = rest.strip()
                     break
+    if not deps:
+        print(f"qmake_cargo_build: warning: no dependencies found in {dep}; "
+              "the crate will not be rebuilt when its sources change", file=sys.stderr)
     with open(args.depfile, "w") as f:
         f.write(f"{args.out}: {deps}\n")
     return 0
