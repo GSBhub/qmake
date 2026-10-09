@@ -1,0 +1,13 @@
+[package]
+name = "qmake-cargo-hello"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "qmake_cargo_hello"
+crate-type = ["staticlib"]
+path = "src/lib.rs"
+
+[profile.release]
+panic = "abort"

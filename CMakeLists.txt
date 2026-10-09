@@ -24,5 +24,7 @@ if(QMAKE_BUILD_EXAMPLES)
   add_subdirectory(examples/arm-hello-dev)
   add_subdirectory(examples/new-edu)
   add_subdirectory(examples/rust-devices)
+  add_subdirectory(examples/dummy-target)
+  add_subdirectory(examples/cargo-staticlib)
 endif()
 
