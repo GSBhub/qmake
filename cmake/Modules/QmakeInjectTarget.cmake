@@ -12,13 +12,15 @@
 #     [MODES      softmmu ...]    # softmmu (default); linux-user is staged
 #     [LONG_BITS  32|64]          # TARGET_LONG_BITS (default 32)
 #     [BIG_ENDIAN]                # TARGET_BIG_ENDIAN=y
-#     [XML_FILES  <gdb-xml...>]   # TARGET_XML_FILES (paths relative to the QEMU root)
+#     [XML_FILES  <gdb-xml...>]   # TARGET_XML_FILES: files in SRCDIR (linked into
+#                                 #   gdb-xml/) or existing QEMU paths
 #     [DEVICES    <CONFIG_X=y...>]# lines for configs/devices/<name>-softmmu/default.mak
 #     [ARCH_BIT   <n>]            # bit used for QEMU_ARCH_<NAME> (default 30)
 #   )
 #
 # Touchpoints in a QEMU 10.2 tree:
 #   new:     target/<name>/*                       (symlinks to SRCDIR)
+#            gdb-xml/<file>                        (XML_FILES found in SRCDIR)
 #            configs/targets/<name>-softmmu.mak
 #            configs/devices/<name>-softmmu/default.mak
 #   marked:  target/meson.build      subdir('<name>')
@@ -27,7 +29,7 @@
 #            include/system/arch_init.h   #define QEMU_ARCH_<NAME>
 #
 # Reverting: `git -C $QMAKE_QEMU_DIR checkout target qapi include` and
-# `git -C $QMAKE_QEMU_DIR clean -fd target configs`.
+# `git -C $QMAKE_QEMU_DIR clean -fd target configs gdb-xml`.
 
 include_guard(GLOBAL)
 include(QmakeInjectMeson)   # _qmake_ensure_injected
@@ -132,7 +134,19 @@ function(qmake_add_qemu_target)
     string(APPEND _mak "TARGET_BIG_ENDIAN=y\n")
   endif()
   if(ARG_XML_FILES)
-    list(JOIN ARG_XML_FILES " " _xml)
+    # Files in SRCDIR are linked into QEMU's gdb-xml/; other entries are taken
+    # as existing QEMU paths (e.g. gdb-xml/arm-core.xml).
+    set(_xml "")
+    foreach(x IN LISTS ARG_XML_FILES)
+      if(EXISTS "${ARG_SRCDIR}/${x}")
+        get_filename_component(_xname "${x}" NAME)
+        file(CREATE_LINK "${ARG_SRCDIR}/${x}" "${_q}/gdb-xml/${_xname}" SYMBOLIC COPY_ON_ERROR)
+        list(APPEND _xml "gdb-xml/${_xname}")
+      else()
+        list(APPEND _xml "${x}")
+      endif()
+    endforeach()
+    list(JOIN _xml " " _xml)
     string(APPEND _mak "TARGET_XML_FILES=${_xml}\n")
   endif()
   file(WRITE "${_q}/configs/targets/${ARG_NAME}-softmmu.mak" ${_mak})

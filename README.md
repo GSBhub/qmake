@@ -134,12 +134,13 @@ QEMU tree are:
 |---|---|
 | `target/<name>/*` | new (per-file symlinks to `SRCDIR`) |
 | `configs/targets/<name>-softmmu.mak`, `configs/devices/<name>-softmmu/default.mak` | new (generated) |
+| `gdb-xml/<file>` | new (symlinks for `XML_FILES` found in `SRCDIR`) |
 | `target/meson.build`, `target/Kconfig` | marker-appended |
 | `include/system/arch_init.h` (`QEMU_ARCH_<NAME>`) | marker-appended (`/* qmake-inject: */`) |
 | `qapi/machine.json` (`SysEmuTarget` enum member) | marker-inserted |
 
 Revert with `git -C $QMAKE_QEMU_DIR checkout target qapi include` and
-`git -C $QMAKE_QEMU_DIR clean -fd target configs`.
+`git -C $QMAKE_QEMU_DIR clean -fd target configs gdb-xml`.
 
 `examples/dummy-target` is a minimal target whose translator turns every
 instruction into a halt helper:
