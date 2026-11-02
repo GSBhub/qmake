@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Checkout (+ QEMU submodule)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -25,7 +25,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build meson pkg-config flex bison python3 git ccache \
-            libglib2.0-dev libpixman-1-dev zlib1g-dev clang libclang-dev
+            libglib2.0-dev libpixman-1-dev zlib1g-dev clang libclang-dev \
+            libfdt-dev
 
       - name: Install Rust toolchain (>= QEMU MSRV) + bindgen
         uses: dtolnay/rust-toolchain@stable
@@ -82,7 +83,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout (+ QEMU submodule for the shipped qtest client)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -90,7 +91,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libglib2.0-0 libpixman-1-0 zlib1g
+            libglib2.0-0 libpixman-1-0 zlib1g libfdt1
 
       - name: Download built QEMU
         uses: actions/download-artifact@v4
