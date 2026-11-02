@@ -10,7 +10,11 @@ extern/**/build/
 # Rust
 /target/
 **/target/
-Cargo.lock
+# Cargo.lock IS tracked: the standalone `cargo build` of the Rust examples
+# resolves QEMU's own crates from crates.io, while the in-tree meson build
+# uses the pinned subprojects/*.wrap versions. Without a lockfile the two
+# disagree and the standalone build breaks on upstream releases (attrs
+# 0.2.10 moved to syn 3 and broke qemu_macros).
 
 # Injected module fragments live in the QEMU submodule working tree; ignore
 # them there so they never show up as submodule dirty state we accidentally commit.

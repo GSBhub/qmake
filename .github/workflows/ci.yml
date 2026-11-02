@@ -63,7 +63,7 @@ jobs:
 
       # --- Rust standalone crate build (uses meson-generated bindings) ---
       - name: Rust - standalone cargo build of the example crate
-        run: MESON_BUILD_ROOT="$PWD/build/qemu-build" cargo build -p qmake-rust-devices
+        run: MESON_BUILD_ROOT="$PWD/build/qemu-build" cargo build --locked -p qmake-rust-devices
 
       # Hand the built emulator to the qtest stage so it need not rebuild QEMU.
       - name: Upload built QEMU (for the qtest stage)
