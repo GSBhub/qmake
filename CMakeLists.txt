@@ -24,5 +24,15 @@ if(QMAKE_BUILD_EXAMPLES)
   add_subdirectory(examples/arm-hello-dev)
   add_subdirectory(examples/new-edu)
   add_subdirectory(examples/rust-devices)
+
+  # Functional qtest: boot QEMU under -accel qtest and drive real MMIO against
+  # the example devices (realize + read/write handlers), not just registration.
+  enable_testing()
+  find_program(QMAKE_PYTHON3 NAMES python3 python REQUIRED)
+  add_test(
+    NAME qtest-mmio
+    COMMAND ${QMAKE_PYTHON3}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/qtest/qmake_qtest.py
+            ${CMAKE_BINARY_DIR}/qemu-build/qemu-system-aarch64)
 endif()
 
